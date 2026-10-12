@@ -41,11 +41,15 @@ function App() {
     'cap-1': 'ONE_SIZE',
   })
   const [queueJoined, setQueueJoined] = useState(false)
+  const [checkoutRequestId, setCheckoutRequestId] = useState(null)
   const [notice, setNotice] = useState('')
   const [saleEndsAt, setSaleEndsAt] = useState(null)
   const [remaining, setRemaining] = useState(0)
+  const [token, setToken] = useState(() => localStorage.getItem('flashdrop_token'))
+  const [loginError, setLoginError] = useState('')
 
   useEffect(() => {
+    if (!token) return undefined
     Promise.all([api.getItems(), api.getSale(), api.getCart(), api.getOrders()])
       .then(([items, sale, cartResponse, loadedOrders]) => {
         setProducts(items.map((item) => ({
@@ -62,7 +66,7 @@ function App() {
         setOrders(loadedOrders.map((order) => normalizeOrder(order, items.map((item) => ({ ...item, accent: item.type === 'Jersey' ? 'blue' : 'orange' })))))
       })
       .catch((error) => setNotice(`Backend unavailable: ${error.message}`))
-  }, [])
+  }, [token])
 
   useEffect(() => {
     if (!saleEndsAt) return undefined
@@ -74,6 +78,16 @@ function App() {
     () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
     [cart],
   )
+
+  if (!token) {
+    return <LoginPage onLogin={(email, password) => api.login(email, password)
+      .then((result) => {
+        localStorage.setItem('flashdrop_token', result.token)
+        setToken(result.token)
+        setLoginError('')
+      })
+      .catch((error) => setLoginError(error.message))} error={loginError} />
+  }
 
   function addToCart(product) {
     const size = selectedSizes[product.id]
@@ -100,12 +114,13 @@ function App() {
       return
     }
     setQueueJoined(true)
+    setCheckoutRequestId((currentId) => currentId ?? crypto.randomUUID())
     setNotice('Your request was added to the FIFO checkout queue')
   }
 
   function placeOrder() {
     if (!queueJoined || !cart.length) return
-    api.checkout()
+    api.checkout(checkoutRequestId)
       .then((order) => {
         setOrders((currentOrders) => [normalizeOrder(order, products), ...currentOrders])
         return Promise.all([api.getItems(), api.getCart()])
@@ -114,6 +129,7 @@ function App() {
         setProducts(items.map((item) => ({ ...item, originalPrice: item.price * 1.67, accent: item.type === 'Jersey' ? 'blue' : 'orange' })))
         setCart(cartResponse.items)
         setQueueJoined(false)
+        setCheckoutRequestId(null)
         setNotice('Order placed successfully. Payment is pending.')
         navigate('/orders')
       })
@@ -142,6 +158,7 @@ function App() {
           <button className={location.pathname === '/orders' ? 'active' : ''} onClick={() => navigate('/orders')} type="button">My orders</button>
         </nav>
         <button className="cart-button" onClick={() => navigate('/shop')} type="button">Cart <span>{cart.length}</span></button>
+        <button className="logout-button" onClick={() => { localStorage.removeItem('flashdrop_token'); setToken(null) }} type="button">Log out</button>
       </header>
 
       <section className="hero">
@@ -161,6 +178,28 @@ function App() {
         <Route path="/payment/:orderId" element={<PaymentPage order={orders.find((item) => item.id === location.pathname.split('/').pop())} onBack={() => navigate('/orders')} onPay={markPaymentPaid} />} />
         <Route path="*" element={<Navigate to="/shop" replace />} />
       </Routes>
+    </main>
+  )
+}
+
+function LoginPage({ onLogin, error }) {
+  const [email, setEmail] = useState('demo@example.com')
+  const [password, setPassword] = useState('password')
+  return (
+    <main className="login-page">
+      <div className="panel login-card">
+        <div className="brand"><span className="brand-mark">F</span><span>FlashDrop</span></div>
+        <p className="eyebrow">Secure sign in</p>
+        <h1>Welcome back</h1>
+        <p className="login-copy">Sign in to access your cart, checkout, and orders.</p>
+        <form onSubmit={(event) => { event.preventDefault(); onLogin(email, password) }}>
+          <label>Email<input value={email} onChange={(event) => setEmail(event.target.value)} type="email" /></label>
+          <label>Password<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" /></label>
+          {error && <div className="notice">{error}</div>}
+          <button className="queue-button" type="submit">Sign in <span>→</span></button>
+        </form>
+        <small className="payment-hint">Demo credentials: demo@example.com / password</small>
+      </div>
     </main>
   )
 }

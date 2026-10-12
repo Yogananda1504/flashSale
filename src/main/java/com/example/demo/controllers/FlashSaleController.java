@@ -22,12 +22,18 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 @RestController
 @RequestMapping("/api")
 @CrossOrigin(origins = "http://localhost:5173")
 public class FlashSaleController {
     private final InventoryStore store;
+    private final ConcurrentMap<String, CompletableFuture<Order>> checkoutRequests =
+            new ConcurrentHashMap<>();
 
     public FlashSaleController(InventoryStore store) {
         this.store = store;
@@ -70,10 +76,24 @@ public class FlashSaleController {
     }
 
     @PostMapping("/checkout")
-    public ResponseEntity<?> checkout() {
+    public ResponseEntity<?> checkout(@RequestBody CheckoutRequest request) {
+        String requestId = request.requestId() == null || request.requestId().isBlank()
+                ? UUID.randomUUID().toString()
+                : request.requestId();
+        CompletableFuture<Order> checkout = checkoutRequests.computeIfAbsent(
+                requestId,
+                ignored -> {
+                    CompletableFuture<Order> future = store.getQueue()
+                            .enqueue(store.getDemoUser());
+                    future.thenAccept(order -> store.getOrders().put(order.getId(), order))
+                            .exceptionally(error -> {
+                                checkoutRequests.remove(requestId, future);
+                                return null;
+                            });
+                    return future;
+                });
         try {
-            Order order = store.getQueue().enqueue(store.getDemoUser()).get(12, TimeUnit.SECONDS);
-            store.getOrders().put(order.getId(), order);
+            Order order = checkout.get(12, TimeUnit.SECONDS);
             return ResponseEntity.ok(toOrderResponse(order));
         } catch (Exception exception) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(
@@ -137,6 +157,9 @@ public class FlashSaleController {
     }
 
     public record AddCartItemRequest(String itemId, String size, int quantity) {
+    }
+
+    public record CheckoutRequest(String requestId) {
     }
 
     public record CartResponse(List<CartItemResponse> items) {
