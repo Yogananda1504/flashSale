@@ -1,29 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import './App.css'
-
-const initialProducts = [
-  {
-    id: 'jersey-1',
-    name: 'City Edition Jersey',
-    type: 'Jersey',
-    price: 29.99,
-    originalPrice: 49.99,
-    stock: 12,
-    sizes: ['S', 'M', 'L'],
-    accent: 'blue',
-  },
-  {
-    id: 'cap-1',
-    name: 'Classic Team Cap',
-    type: 'Cap',
-    price: 14.99,
-    originalPrice: 24.99,
-    stock: 6,
-    sizes: ['ONE_SIZE'],
-    accent: 'orange',
-  },
-]
-const saleEndsAt = Date.now() + (18 * 60 + 42) * 1000
+import { api } from './api'
 
 function formatRemaining(milliseconds) {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000))
@@ -33,24 +11,64 @@ function formatRemaining(milliseconds) {
   return `${hours} : ${minutes} : ${seconds}`
 }
 
+function normalizeOrder(order, products) {
+  return {
+    ...order,
+    createdAt: new Date(order.createdAt).toLocaleString(),
+    items: order.items.map((item) => {
+      const product = products.find((productItem) => productItem.id === item.itemId)
+      return {
+        ...item,
+        id: item.itemId,
+        name: item.itemName,
+        price: item.unitPrice,
+        size: product?.sizes?.[0] ?? 'ONE_SIZE',
+        type: product?.type ?? 'Item',
+        accent: product?.accent ?? 'blue',
+      }
+    }),
+  }
+}
+
 function App() {
-  const [products, setProducts] = useState(initialProducts)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [products, setProducts] = useState([])
   const [cart, setCart] = useState([])
   const [orders, setOrders] = useState([])
-  const [page, setPage] = useState('shop')
-  const [paymentOrderId, setPaymentOrderId] = useState(null)
   const [selectedSizes, setSelectedSizes] = useState({
     'jersey-1': 'M',
     'cap-1': 'ONE_SIZE',
   })
   const [queueJoined, setQueueJoined] = useState(false)
   const [notice, setNotice] = useState('')
-  const [remaining, setRemaining] = useState((18 * 60 + 42) * 1000)
+  const [saleEndsAt, setSaleEndsAt] = useState(null)
+  const [remaining, setRemaining] = useState(0)
 
   useEffect(() => {
+    Promise.all([api.getItems(), api.getSale(), api.getCart(), api.getOrders()])
+      .then(([items, sale, cartResponse, loadedOrders]) => {
+        setProducts(items.map((item) => ({
+          ...item,
+          originalPrice: item.price * 1.67,
+          accent: item.type === 'Jersey' ? 'blue' : 'orange',
+        })))
+        setSaleEndsAt(new Date(sale.endsAt).getTime())
+        setRemaining(new Date(sale.endsAt).getTime() - Date.now())
+        setCart(cartResponse.items.map((item) => {
+          const product = items.find((productItem) => productItem.id === item.itemId)
+          return { ...product, quantity: item.quantity, size: product?.sizes?.[0] ?? 'ONE_SIZE', accent: product?.type === 'Jersey' ? 'blue' : 'orange' }
+        }))
+        setOrders(loadedOrders.map((order) => normalizeOrder(order, items.map((item) => ({ ...item, accent: item.type === 'Jersey' ? 'blue' : 'orange' })))))
+      })
+      .catch((error) => setNotice(`Backend unavailable: ${error.message}`))
+  }, [])
+
+  useEffect(() => {
+    if (!saleEndsAt) return undefined
     const timer = setInterval(() => setRemaining(saleEndsAt - Date.now()), 1000)
     return () => clearInterval(timer)
-  }, [])
+  }, [saleEndsAt])
 
   const total = useMemo(
     () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
@@ -59,27 +77,17 @@ function App() {
 
   function addToCart(product) {
     const size = selectedSizes[product.id]
-    const existingQuantity = cart.find(
-      (item) => item.id === product.id && item.size === size,
-    )?.quantity ?? 0
-    if (existingQuantity >= product.stock) {
-      setNotice(`${product.name} is out of stock`)
-      return
-    }
-    setCart((currentCart) => {
-      const existing = currentCart.find(
-        (item) => item.id === product.id && item.size === size,
-      )
-      if (existing) {
-        return currentCart.map((item) =>
-          item.id === product.id && item.size === size
-            ? { ...item, quantity: item.quantity + 1 }
-            : item,
-        )
-      }
-      return [...currentCart, { ...product, size, quantity: 1 }]
-    })
-    setNotice(`${product.name} added to your cart`)
+    api.addToCart(product.id, size)
+      .then((cartResponse) => {
+        const cartItem = cartResponse.items.find((item) => item.itemId === product.id)
+        setCart((currentCart) => {
+          const existing = currentCart.find((item) => item.id === product.id && item.size === size)
+          if (existing) return currentCart.map((item) => item.id === product.id && item.size === size ? { ...item, quantity: cartItem.quantity } : item)
+          return [...currentCart, { ...product, size, quantity: cartItem.quantity }]
+        })
+        setNotice(`${product.name} added to your cart`)
+      })
+      .catch((error) => setNotice(error.message))
   }
 
   function joinQueue() {
@@ -97,58 +105,43 @@ function App() {
 
   function placeOrder() {
     if (!queueJoined || !cart.length) return
-    const unavailable = cart.find((cartItem) => {
-      const product = products.find((item) => item.id === cartItem.id)
-      return !product || product.stock < cartItem.quantity
-    })
-    if (unavailable) {
-      setNotice(`${unavailable.name} is no longer available in that quantity`)
-      return
-    }
-
-    setProducts((currentProducts) =>
-      currentProducts.map((product) => {
-        const purchased = cart.find((item) => item.id === product.id)
-        return purchased
-          ? { ...product, stock: product.stock - purchased.quantity }
-          : product
-      }),
-    )
-    setOrders((currentOrders) => [{
-      id: `FD-${String(currentOrders.length + 1).padStart(4, '0')}`,
-      items: cart,
-      total,
-      paymentStatus: 'PENDING',
-      deliveryStatus: 'NOT_STARTED',
-      createdAt: new Date().toLocaleString(),
-    }, ...currentOrders])
-    setCart([])
-    setQueueJoined(false)
-    setNotice('Order placed successfully. Payment is pending.')
-    setPage('orders')
+    api.checkout()
+      .then((order) => {
+        setOrders((currentOrders) => [normalizeOrder(order, products), ...currentOrders])
+        return Promise.all([api.getItems(), api.getCart()])
+      })
+      .then(([items, cartResponse]) => {
+        setProducts(items.map((item) => ({ ...item, originalPrice: item.price * 1.67, accent: item.type === 'Jersey' ? 'blue' : 'orange' })))
+        setCart(cartResponse.items)
+        setQueueJoined(false)
+        setNotice('Order placed successfully. Payment is pending.')
+        navigate('/orders')
+      })
+      .catch((error) => setNotice(error.message))
   }
 
   function markPaymentPaid(orderId) {
-    setOrders((currentOrders) => currentOrders.map((order) =>
-      order.id === orderId ? { ...order, paymentStatus: 'PAID' } : order,
-    ))
-    setNotice('Payment status updated to paid')
-    setPage('orders')
-    setPaymentOrderId(null)
+    api.pay(orderId)
+      .then((updatedOrder) => {
+        setOrders((currentOrders) => currentOrders.map((order) => order.id === orderId ? normalizeOrder(updatedOrder, products) : order))
+        setNotice('Payment status updated to paid')
+        navigate('/orders')
+      })
+      .catch((error) => setNotice(error.message))
   }
 
   return (
     <main className="app-shell">
       <header className="topbar">
-        <button className="brand brand-button" onClick={() => setPage('shop')} type="button">
+        <button className="brand brand-button" onClick={() => navigate('/shop')} type="button">
           <span className="brand-mark">F</span><span>FlashDrop</span>
         </button>
         <div className="live-indicator"><span className="pulse" />Live sale</div>
         <nav className="main-nav">
-          <button className={page === 'shop' ? 'active' : ''} onClick={() => setPage('shop')} type="button">Shop</button>
-          <button className={page === 'orders' ? 'active' : ''} onClick={() => setPage('orders')} type="button">My orders</button>
+          <button className={location.pathname === '/shop' ? 'active' : ''} onClick={() => navigate('/shop')} type="button">Shop</button>
+          <button className={location.pathname === '/orders' ? 'active' : ''} onClick={() => navigate('/orders')} type="button">My orders</button>
         </nav>
-        <button className="cart-button" onClick={() => setPage('shop')} type="button">Cart <span>{cart.length}</span></button>
+        <button className="cart-button" onClick={() => navigate('/shop')} type="button">Cart <span>{cart.length}</span></button>
       </header>
 
       <section className="hero">
@@ -161,34 +154,13 @@ function App() {
 
       {notice && <div className="notice" role="status">{notice}</div>}
 
-      {page === 'orders' ? (
-        <OrdersPage
-          orders={orders}
-          onMakePayment={(orderId) => {
-            setPaymentOrderId(orderId)
-            setPage('payment')
-          }}
-        />
-      ) : page === 'payment' ? (
-        <PaymentPage
-          order={orders.find((item) => item.id === paymentOrderId)}
-          onBack={() => setPage('orders')}
-          onPay={markPaymentPaid}
-        />
-      ) : (
-        <ShopPage
-          cart={cart}
-          products={products}
-          selectedSizes={selectedSizes}
-          setSelectedSizes={setSelectedSizes}
-          addToCart={addToCart}
-          total={total}
-          queueJoined={queueJoined}
-          joinQueue={joinQueue}
-          placeOrder={placeOrder}
-          orders={orders}
-        />
-      )}
+      <Routes>
+        <Route path="/" element={<Navigate to="/shop" replace />} />
+        <Route path="/shop" element={<ShopPage cart={cart} products={products} selectedSizes={selectedSizes} setSelectedSizes={setSelectedSizes} addToCart={addToCart} total={total} queueJoined={queueJoined} joinQueue={joinQueue} placeOrder={placeOrder} orders={orders} />} />
+        <Route path="/orders" element={<OrdersPage orders={orders} onMakePayment={(orderId) => navigate(`/payment/${orderId}`)} />} />
+        <Route path="/payment/:orderId" element={<PaymentPage order={orders.find((item) => item.id === location.pathname.split('/').pop())} onBack={() => navigate('/orders')} onPay={markPaymentPaid} />} />
+        <Route path="*" element={<Navigate to="/shop" replace />} />
+      </Routes>
     </main>
   )
 }
