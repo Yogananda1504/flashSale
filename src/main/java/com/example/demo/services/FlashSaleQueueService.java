@@ -1,11 +1,11 @@
 package com.example.demo.services;
 
 import com.example.demo.models.FlashSale;
-import com.example.demo.models.Item;
-import com.example.demo.models.Order;
 import com.example.demo.models.User;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -17,12 +17,12 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
- * Processes flash-sale checkout requests in FIFO order, in fixed-size batches.
+ * Admits flash-sale customers to payment in fixed-size batches.
  */
 public class FlashSaleQueueService implements AutoCloseable {
+    private static final Duration CHECKOUT_BUFFER = Duration.ofSeconds(3);
     private final FlashSale sale;
     private final FlashSaleService flashSaleService;
-    private final CartService cartService;
     private final Clock clock;
     private final int requestsPerSecond;
     private final BlockingQueue<CheckoutRequest> requests = new LinkedBlockingQueue<>();
@@ -41,7 +41,6 @@ public class FlashSaleQueueService implements AutoCloseable {
             Clock clock) {
         this.sale = Objects.requireNonNull(sale, "sale must not be null");
         this.flashSaleService = new FlashSaleService();
-        this.cartService = new CartService();
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
         if (requestsPerSecond <= 0) {
             throw new IllegalArgumentException("requestsPerSecond must be greater than zero");
@@ -64,10 +63,10 @@ public class FlashSaleQueueService implements AutoCloseable {
                 TimeUnit.SECONDS);
     }
 
-    public CompletableFuture<Order> enqueue(User user) {
+    public CompletableFuture<Void> awaitTurn(User user) {
         Objects.requireNonNull(user, "user must not be null");
-        CompletableFuture<Order> result = new CompletableFuture<>();
-        requests.add(new CheckoutRequest(user, result));
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        requests.add(new CheckoutRequest(user, result, clock.instant().plus(CHECKOUT_BUFFER)));
         return result;
     }
 
@@ -77,6 +76,10 @@ public class FlashSaleQueueService implements AutoCloseable {
 
     private void processBatch() {
         for (int index = 0; index < requestsPerSecond; index++) {
+            CheckoutRequest next = requests.peek();
+            if (next == null || clock.instant().isBefore(next.readyAt())) {
+                return;
+            }
             CheckoutRequest request = requests.poll();
             if (request == null) {
                 return;
@@ -91,6 +94,9 @@ public class FlashSaleQueueService implements AutoCloseable {
             if (!flashSaleService.isActive(sale, now)) {
                 throw new IllegalStateException("flash sale is not active");
             }
+            if (request.user.getCart().getItems().isEmpty()) {
+                throw new IllegalStateException("cart has no available items");
+            }
             if (request.user.getCart().getItems().stream()
                     .anyMatch(cartItem -> sale.getItems().stream()
                             .noneMatch(saleItem -> saleItem.getId()
@@ -98,16 +104,10 @@ public class FlashSaleQueueService implements AutoCloseable {
                 throw new IllegalArgumentException(
                         "cart contains an item that is not included in the flash sale");
             }
-            request.result.complete(cartService.checkout(
-                    request.user,
-                    item -> priceForSaleItem(item, now)));
+            request.result.complete(null);
         } catch (RuntimeException exception) {
             request.result.completeExceptionally(exception);
         }
-    }
-
-    private java.math.BigDecimal priceForSaleItem(Item item, LocalDateTime now) {
-        return flashSaleService.priceFor(item, sale, now);
     }
 
     @Override
@@ -121,6 +121,6 @@ public class FlashSaleQueueService implements AutoCloseable {
         }
     }
 
-    private record CheckoutRequest(User user, CompletableFuture<Order> result) {
+    private record CheckoutRequest(User user, CompletableFuture<Void> result, Instant readyAt) {
     }
 }

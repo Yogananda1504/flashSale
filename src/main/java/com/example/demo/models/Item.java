@@ -47,4 +47,9 @@ public abstract class Item {
         }
         stockQuantity -= quantity;
     }
+
+    public synchronized void restoreStock(int quantity) {
+        if (quantity <= 0) throw new IllegalArgumentException("quantity must be greater than zero");
+        stockQuantity = Math.addExact(stockQuantity, quantity);
+    }
 }

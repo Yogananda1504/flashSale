@@ -23,6 +23,6 @@ public class FlashSaleService {
         if (!included) {
             throw new IllegalArgumentException("item is not included in the sale");
         }
-        return isActive(sale, now) ? sale.getSalePrice() : item.getPrice();
+        return isActive(sale, now) ? sale.getSalePrice().min(item.getPrice()) : item.getPrice();
     }
 }

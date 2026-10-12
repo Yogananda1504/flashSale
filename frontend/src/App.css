@@ -1,4 +1,34 @@
 #root { min-height: 100vh; }
+.cancel-dialog { width: min(440px, calc(100% - 40px)); padding: 30px; border: 1px solid #e0e6df; border-radius: 17px; background: #fff; color: #243d2b; box-shadow: 0 20px 70px #1e2a2033; }
+.cancel-dialog::backdrop { background: #1e2a2077; }
+.cancel-dialog h2 { margin-bottom: 14px; }
+.cancel-dialog p { color: #65706a; font-size: 14px; line-height: 1.65; }
+.cancel-dialog-actions { display: grid; gap: 12px; margin-top: 24px; }
+.cancel-dialog-actions .queue-button { text-align: center; }
+.cancel-payment-button { border: 1px solid #d99483; border-radius: 8px; padding: 12px; background: #fff; color: #a43d27; cursor: pointer; }
+.cancel-payment-button:disabled { opacity: .5; cursor: not-allowed; }
+.waiting-page { padding: 16px 0 48px; display: grid; place-items: center; }
+.waiting-card { width: min(100%, 620px); padding: 40px; text-align: center; }
+.waiting-icon { display: grid; place-items: center; width: 64px; height: 64px; margin: 0 auto 26px; border: 2px solid #d9fa67; border-radius: 50%; background: #eef5dd; color: #243d2b; font-size: 32px; }
+.waiting-icon.spinning { animation: queue-spin 2s linear infinite; }
+.waiting-card h2 { font-size: 30px; margin-bottom: 14px; }
+.waiting-copy { color: #65706a; font-size: 14px; line-height: 1.65; }
+.waiting-time { display: grid; gap: 9px; margin: 28px 0; padding: 22px; background: #f3f6ef; border-radius: 12px; }
+.waiting-time span { color: #65706a; font-size: 12px; }
+.waiting-time strong { font: 28px 'DM Mono', monospace; color: #243d2b; }
+.waiting-steps { display: grid; gap: 18px; padding: 0; margin: 28px 0; list-style: none; text-align: left; }
+.waiting-steps li { display: flex; gap: 12px; align-items: center; color: #7b8780; font-size: 13px; }
+.waiting-steps li > span { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #ecf0eb; }
+.waiting-steps .done > span { background: #d9fa67; color: #243d2b; }
+.waiting-steps .current { color: #243d2b; font-weight: 600; }
+.waiting-steps .current > span { background: #243d2b; color: white; }
+.waiting-actions { display: grid; gap: 18px; margin-top: 26px; }
+.queue-button.loading-button:disabled { display: flex; align-items: center; justify-content: center; gap: 10px; background: #243d2b; color: #fff; }
+.queue-button .button-spinner { float: none; width: 16px; height: 16px; border: 2px solid #ffffff55; border-top-color: #fff; border-radius: 50%; animation: queue-spin .8s linear infinite; }
+.waiting-actions .back-button { margin: 0; line-height: 1.5; }
+@keyframes queue-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .waiting-icon.spinning, .queue-button .button-spinner { animation: none; } }
+@media (max-width: 620px) { .waiting-card { padding: 26px 20px; }.waiting-card h2 { font-size: 25px; } }
 .app-shell { max-width: 1240px; margin: auto; padding: 0 42px 64px; }
 .topbar { height: 88px; display: flex; align-items: center; gap: 28px; border-bottom: 1px solid #dce2dc; }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 700; letter-spacing: -.5px; }
@@ -22,7 +52,11 @@ h1 em { color: #91a848; font-style: normal; }
 .countdown-card p { margin-bottom: 9px; font-size: 12px; text-transform: uppercase; letter-spacing: .12em; }
 .countdown-card strong { display: block; font: 31px 'DM Mono', monospace; letter-spacing: -.08em; }
 .countdown-card span { font-size: 11px; color: #58662f; }
-.notice { padding: 12px 17px; margin-bottom: 24px; border-radius: 9px; background: #e9f4d1; color: #4c6426; font-size: 13px; }
+.notice { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 17px; margin-bottom: 24px; border-radius: 9px; background: #e9f4d1; color: #4c6426; font-size: 13px; }
+.notice > span { min-width: 0; overflow-wrap: anywhere; }
+.notice-close { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: inherit; font-size: 22px; line-height: 1; cursor: pointer; }
+.notice-close:hover { background: #4c64261a; }
+.notice-close:focus-visible { outline: 2px solid #4c6426; outline-offset: 2px; }
 .content-grid { display: grid; grid-template-columns: 1fr 345px; gap: 43px; align-items: start; }
 .section-heading, .panel-heading, .product-title, .card-footer, .total-row, .order-status, .queue-visual { display: flex; justify-content: space-between; align-items: center; }
 h2 { font-size: 24px; letter-spacing: -.05em; margin-bottom: 21px; }

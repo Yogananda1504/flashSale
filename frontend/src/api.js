@@ -1,7 +1,9 @@
 const API_BASE = 'http://localhost:8080/api'
+export const SESSION_EXPIRED_EVENT = 'flashdrop:session-expired'
 
 async function request(path, options = {}) {
-  const token = localStorage.getItem('flashdrop_token')
+  const requiresAuth = !path.startsWith('/auth/')
+  const token = requiresAuth ? localStorage.getItem('flashdrop_token') : null
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
       'Content-Type': 'application/json',
@@ -9,9 +11,21 @@ async function request(path, options = {}) {
     },
     ...options,
   })
+  if (requiresAuth && token !== localStorage.getItem('flashdrop_token')) {
+    throw new Error('Session changed; please sign in again')
+  }
+  if (requiresAuth && response.status === 401 && token) {
+    localStorage.removeItem('flashdrop_token')
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))
+  }
   if (!response.ok) {
-    const message = await response.text()
-    throw new Error(message || `Request failed with status ${response.status}`)
+    const body = await response.text()
+    let details
+    try { details = JSON.parse(body) } catch { /* Plain-text errors are also supported. */ }
+    const error = new Error(details?.message || body || `Request failed with status ${response.status}`)
+    error.status = response.status
+    error.checkoutFailed = ['FAILED', 'EXPIRED'].includes(details?.status)
+    throw error
   }
   return response.json()
 }
@@ -20,6 +34,10 @@ export const api = {
   login: (email, password) => request('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
+  }),
+  register: (name, email, password) => request('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ name, email, password }),
   }),
   getItems: () => request('/items'),
   getSale: () => request('/sale'),
@@ -32,6 +50,13 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ requestId }),
   }),
+  getCheckoutStatus: (requestId) => request(`/me/checkout/${encodeURIComponent(requestId)}`),
+  payCheckout: (requestId) => request(`/me/checkout/${encodeURIComponent(requestId)}/payment`, {
+    method: 'POST',
+    body: JSON.stringify({ paymentConfirmed: true }),
+  }),
+  cancelCheckout: (requestId) => request(`/me/checkout/${encodeURIComponent(requestId)}/cancel`, {
+    method: 'POST',
+  }),
   getOrders: () => request('/me/orders'),
-  pay: (orderId) => request(`/me/orders/${orderId}/payment`, { method: 'POST' }),
 }

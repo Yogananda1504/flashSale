@@ -10,12 +10,14 @@ import com.example.demo.models.Order;
 import com.example.demo.models.User;
 import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Service;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.UUID;
 
 @Service
 public class InventoryStore {
@@ -25,7 +27,7 @@ public class InventoryStore {
     private final FlashSale sale;
     private final FlashSaleQueueService queue;
 
-    public InventoryStore() {
+    public InventoryStore(PasswordEncoder passwordEncoder) {
         Item jersey = new JerseyItem(
                 "jersey-1", "City Edition Jersey",
                 new BigDecimal("29.99"), 12, JerseySize.M);
@@ -34,8 +36,9 @@ public class InventoryStore {
                 new BigDecimal("14.99"), 6, CapSize.ONE_SIZE);
         items.put(jersey.getId(), jersey);
         items.put(cap.getId(), cap);
-        User demoUser = new User("user-1", "Demo Customer", "demo@example.com");
-        users.put(demoUser.getEmail(), demoUser);
+        users.put("demo@example.com", new User(
+                "user-1", "Demo Customer", "demo@example.com",
+                passwordEncoder.encode("password")));
         sale = new FlashSale(
                 List.of(jersey, cap),
                 new BigDecimal("29.99"),
@@ -51,6 +54,15 @@ public class InventoryStore {
 
     public User getUser(String email) {
         return users.get(email);
+    }
+
+    public synchronized User createUser(String name, String email, String passwordHash) {
+        if (users.containsKey(email)) {
+            return null;
+        }
+        User user = new User(UUID.randomUUID().toString(), name, email, passwordHash);
+        users.put(email, user);
+        return user;
     }
 
     public FlashSale getSale() {

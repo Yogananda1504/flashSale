@@ -42,4 +42,14 @@ public class Cart {
     public synchronized void clear() {
         items.clear();
     }
+
+    public synchronized void consume(String itemId, int quantity) {
+        for (CartItem cartItem : items) {
+            if (cartItem.getItem().getId().equals(itemId)) {
+                if (cartItem.getQuantity() > quantity) cartItem.setQuantity(cartItem.getQuantity() - quantity);
+                else items.remove(cartItem);
+                return;
+            }
+        }
+    }
 }

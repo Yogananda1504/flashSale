@@ -52,6 +52,10 @@ public class CartService {
     }
 
     public Order checkout(User user, Function<Item, java.math.BigDecimal> priceProvider) {
+        return reserve(user, priceProvider).placeOrder();
+    }
+
+    public Reservation reserve(User user, Function<Item, java.math.BigDecimal> priceProvider) {
         Objects.requireNonNull(user, "user must not be null");
         Objects.requireNonNull(priceProvider, "priceProvider must not be null");
         Cart cart = user.getCart();
@@ -66,7 +70,7 @@ public class CartService {
         }
     }
 
-    private Order checkoutWithLocks(
+    private Reservation checkoutWithLocks(
             User user,
             Cart cart,
             List<CartItem> cartItems,
@@ -104,7 +108,41 @@ public class CartService {
         for (CartItem cartItem : cartItems) {
             cartItem.getItem().decreaseStock(cartItem.getQuantity());
         }
-        cart.clear();
-        return new Order(UUID.randomUUID().toString(), user.getId(), orderItems);
+        return new Reservation(user.getId(), cart, orderItems, cartItems.stream()
+                .map(item -> new ReservedStock(item.getItem(), item.getQuantity())).toList());
+    }
+
+    private record ReservedStock(Item item, int quantity) { }
+
+    public static class Reservation {
+        private final String userId;
+        private final Cart cart;
+        private final List<OrderItem> orderItems;
+        private final List<ReservedStock> stock;
+        private boolean released;
+        private Order order;
+
+        private Reservation(String userId, Cart cart, List<OrderItem> orderItems, List<ReservedStock> stock) {
+            this.userId = userId;
+            this.cart = cart;
+            this.orderItems = List.copyOf(orderItems);
+            this.stock = stock;
+        }
+
+        public synchronized Order placeOrder() {
+            if (released) throw new IllegalStateException("reservation has been released");
+            if (order != null) return order;
+            order = new Order(UUID.randomUUID().toString(), userId, orderItems);
+            synchronized (cart) {
+                for (ReservedStock item : stock) cart.consume(item.item().getId(), item.quantity());
+            }
+            return order;
+        }
+
+        public synchronized void release() {
+            if (released || order != null) return;
+            released = true;
+            for (ReservedStock item : stock) item.item().restoreStock(item.quantity());
+        }
     }
 }
