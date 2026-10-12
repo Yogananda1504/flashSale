@@ -21,7 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class InventoryStore {
     private final Map<String, Item> items = new ConcurrentHashMap<>();
     private final Map<String, Order> orders = new ConcurrentHashMap<>();
-    private final User demoUser = new User("user-1", "Demo Customer", "demo@example.com");
+    private final Map<String, User> users = new ConcurrentHashMap<>();
     private final FlashSale sale;
     private final FlashSaleQueueService queue;
 
@@ -34,6 +34,8 @@ public class InventoryStore {
                 new BigDecimal("14.99"), 6, CapSize.ONE_SIZE);
         items.put(jersey.getId(), jersey);
         items.put(cap.getId(), cap);
+        User demoUser = new User("user-1", "Demo Customer", "demo@example.com");
+        users.put(demoUser.getEmail(), demoUser);
         sale = new FlashSale(
                 List.of(jersey, cap),
                 new BigDecimal("29.99"),
@@ -47,8 +49,8 @@ public class InventoryStore {
         return items;
     }
 
-    public User getDemoUser() {
-        return demoUser;
+    public User getUser(String email) {
+        return users.get(email);
     }
 
     public FlashSale getSale() {

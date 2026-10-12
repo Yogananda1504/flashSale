@@ -26,6 +26,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.security.Principal;
 
 @RestController
 @RequestMapping("/api")
@@ -51,9 +52,9 @@ public class FlashSaleController {
                 store.getSale().getQuantityLimit());
     }
 
-    @GetMapping("/cart")
-    public CartResponse cart() {
-        List<CartItemResponse> cartItems = store.getDemoUser().getCart().getItems().stream()
+    @GetMapping("/me/cart")
+    public CartResponse cart(Principal principal) {
+        List<CartItemResponse> cartItems = currentUser(principal).getCart().getItems().stream()
                 .map(cartItem -> new CartItemResponse(
                         cartItem.getItem().getId(),
                         cartItem.getItem().getName(),
@@ -62,8 +63,9 @@ public class FlashSaleController {
         return new CartResponse(cartItems);
     }
 
-    @PostMapping("/cart/items")
-    public ResponseEntity<?> addToCart(@RequestBody AddCartItemRequest request) {
+    @PostMapping("/me/cart/items")
+    public ResponseEntity<?> addToCart(
+            @RequestBody AddCartItemRequest request, Principal principal) {
         Item item = store.getItems().get(request.itemId());
         if (item == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Item not found");
@@ -71,20 +73,22 @@ public class FlashSaleController {
         if (request.quantity() <= 0 || request.quantity() > item.getStockQuantity()) {
             return ResponseEntity.badRequest().body("Requested quantity is unavailable");
         }
-        store.getDemoUser().getCart().add(item, request.quantity());
-        return ResponseEntity.ok(cart());
+        currentUser(principal).getCart().add(item, request.quantity());
+        return ResponseEntity.ok(cart(principal));
     }
 
-    @PostMapping("/checkout")
-    public ResponseEntity<?> checkout(@RequestBody CheckoutRequest request) {
+    @PostMapping("/me/checkout")
+    public ResponseEntity<?> checkout(
+            @RequestBody CheckoutRequest request, Principal principal) {
+        String userId = currentUser(principal).getId();
         String requestId = request.requestId() == null || request.requestId().isBlank()
                 ? UUID.randomUUID().toString()
                 : request.requestId();
         CompletableFuture<Order> checkout = checkoutRequests.computeIfAbsent(
-                requestId,
+                userId + ":" + requestId,
                 ignored -> {
                     CompletableFuture<Order> future = store.getQueue()
-                            .enqueue(store.getDemoUser());
+                            .enqueue(currentUser(principal));
                     future.thenAccept(order -> store.getOrders().put(order.getId(), order))
                             .exceptionally(error -> {
                                 checkoutRequests.remove(requestId, future);
@@ -101,19 +105,30 @@ public class FlashSaleController {
         }
     }
 
-    @GetMapping("/orders")
-    public List<OrderResponse> orders() {
-        return store.getOrders().values().stream().map(this::toOrderResponse).toList();
+    @GetMapping("/me/orders")
+    public List<OrderResponse> orders(Principal principal) {
+        String userId = currentUser(principal).getId();
+        return store.getOrders().values().stream()
+                .filter(order -> userId.equals(order.getUserId()))
+                .map(this::toOrderResponse).toList();
     }
 
-    @PostMapping("/orders/{orderId}/payment")
-    public ResponseEntity<?> pay(@PathVariable String orderId) {
+    @PostMapping("/me/orders/{orderId}/payment")
+    public ResponseEntity<?> pay(@PathVariable String orderId, Principal principal) {
         Order order = store.getOrders().get(orderId);
-        if (order == null) {
+        if (order == null || !currentUser(principal).getId().equals(order.getUserId())) {
             return ResponseEntity.notFound().build();
         }
         order.markPaymentPaid();
         return ResponseEntity.ok(toOrderResponse(order));
+    }
+
+    private com.example.demo.models.User currentUser(Principal principal) {
+        com.example.demo.models.User user = store.getUser(principal.getName());
+        if (user == null) {
+            throw new IllegalStateException("Authenticated user is not registered");
+        }
+        return user;
     }
 
     private ItemResponse toItemResponse(Item item) {

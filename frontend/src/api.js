@@ -23,15 +23,15 @@ export const api = {
   }),
   getItems: () => request('/items'),
   getSale: () => request('/sale'),
-  getCart: () => request('/cart'),
-  addToCart: (itemId, size, quantity = 1) => request('/cart/items', {
+  getCart: () => request('/me/cart'),
+  addToCart: (itemId, size, quantity = 1) => request('/me/cart/items', {
     method: 'POST',
     body: JSON.stringify({ itemId, size, quantity }),
   }),
-  checkout: (requestId) => request('/checkout', {
+  checkout: (requestId) => request('/me/checkout', {
     method: 'POST',
     body: JSON.stringify({ requestId }),
   }),
-  getOrders: () => request('/orders'),
-  pay: (orderId) => request(`/orders/${orderId}/payment`, { method: 'POST' }),
+  getOrders: () => request('/me/orders'),
+  pay: (orderId) => request(`/me/orders/${orderId}/payment`, { method: 'POST' }),
 }
